@@ -1,0 +1,8 @@
+#include "bitcoind.h"
+
+BitCoind::BitCoind(QString host, QString port)
+    : _host(host)
+    , _port(port)
+{
+    // Connect to rpc 
+}
