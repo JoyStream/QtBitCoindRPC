@@ -44,24 +44,13 @@ private:
     // Does rpc to server
     QNetworkReply * performRPC(QString method, QJsonArray params);
 
-    // Create request
-    QNetworkRequest createRequest(QString method);
-
-    // QJson rpc base object (http://json-rpc.org/wiki/specification)
-    QJsonObject createRPCJson(QString method, QJsonArray params);
-
-    // Used by QNetworkReply reply objects
-    void _getblockcount(const QByteArray & data);
+    // Process results for corresponding method
+    void _getblockcount(const QJsonValue & result);
 
 public slots:
 
     // Used by _manager
-    void authenticationRequired(QNetworkReply * reply, QAuthenticator * authenticator);
-    //void encrypted(QNetworkReply * reply);
     void finished(QNetworkReply * reply);
-    //void networkAccessibleChanged(QNetworkAccessManager::NetworkAccessibility accessible);
-    //void proxyAuthenticationRequired(const QNetworkProxy & proxy, QAuthenticator * authenticator);
-    //void sslErrors(QNetworkReply * reply, const QList<QSslError> & errors);
 
 signals:
 
