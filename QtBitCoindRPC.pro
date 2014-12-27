@@ -16,7 +16,9 @@ TEMPLATE = app
 
 
 SOURCES += main.cpp \
-    Client.cpp
+    Client.cpp \
+    Future.cpp
 
 HEADERS += \
-    Client.hpp
+    Client.hpp \
+    Future.hpp
