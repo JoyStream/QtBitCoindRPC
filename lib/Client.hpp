@@ -6,10 +6,13 @@
 
 class QJsonObject;
 template <typename T> class QFuture;
+class QEventLoop;
 
 namespace BitCoindRPC {
 
-class Client {
+class Client : public QObject {
+
+    Q_OBJECT
 
 public:
 
@@ -45,8 +48,11 @@ private:
     // Allows access to network
     QNetworkAccessManager _manager;
 
-    // Does blocking RPC call of given method with given parameters
+    // Blocking RPC call of given method with given parameters
     QJsonValue blockingRPC(const QString & method, const QJsonArray & parameters);
+
+    // Blocking POST which must be done on same thread as _manager owner
+    Q_INVOKABLE QNetworkReply * blockingPostOnManagerThread(const QByteArray & payload);
 };
 
 }

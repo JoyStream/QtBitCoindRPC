@@ -44,21 +44,28 @@ QJsonValue Client::blockingRPC(const QString & method, const QJsonArray & parame
     // Turn into byte array
     QByteArray payload = QJsonDocument(RPCJson).toJson();
 
-    // Temporary event loop on stack
-    QEventLoop eventLoop;
+    // Use a direct connection if we are on manager thread, otherwise use a blocking connection
+    Qt::ConnectionType type;
 
-    // Submit POST request
-    QNetworkReply * reply = _manager.post(_request, payload);
+    //Qt::HANDLE currentThreadId = QThread::currentThread()->currentThreadId(),
+    //            managerThreadId = _manager.thread()->currentThreadId();
 
-    // Dispose of reply when reentering event loop later
+    if(QThread::currentThread() == _manager.thread())
+        type = Qt::DirectConnection;
+    else
+        type = Qt::BlockingQueuedConnection;
+
+    // Get return value
+    QNetworkReply * reply;
+
+    QMetaObject::invokeMethod(this,
+                              "blockingPostOnManagerThread",
+                              type,
+                              Q_RETURN_ARG(QNetworkReply*, reply),
+                              Q_ARG(QByteArray, payload));
+
+    // Dispose of reply on its thread
     reply->deleteLater();
-
-    // Stop event loop when reply is finished
-    QObject::connect(reply, SIGNAL(finished()),
-                     &eventLoop, SLOT(quit()));
-
-    // Enter event loop until reply is finished
-    eventLoop.exec();
 
     // Get response data
     QByteArray response = reply->readAll();
@@ -86,6 +93,25 @@ QJsonValue Client::blockingRPC(const QString & method, const QJsonArray & parame
         // Throw exception with given error
         throw std::exception(errorString.toLatin1());
     }
+}
+
+QNetworkReply * Client::blockingPostOnManagerThread(const QByteArray & payload) {
+
+    // Temporary event loop on stack
+    QEventLoop eventLoop;
+
+    // Submit POST request
+    QNetworkReply * reply = _manager.post(_request, payload);
+
+    // Stop event loop when reply is finished
+    QObject::connect(reply, SIGNAL(finished()),
+                     &eventLoop, SLOT(quit()));
+
+    // Enter event loop until reply is finished
+    eventLoop.exec();
+
+    // Return reply
+    return reply;
 }
 
 QFuture<uint> Client::getBlockCount() {
