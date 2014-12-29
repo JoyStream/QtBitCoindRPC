@@ -10,39 +10,43 @@
  * Another short coming of the built in QtFuture is that it has no
  * built in concept of failed computations and time.
  *
- * T must have
- * 1) default constructor for when computation is not completed.
- * 2) assignment operator for saving future copy in client code.
- * 3)
+ * T must have a default constructor for when computation is not completed.
  */
 
 #include "Client.hpp"
 
 #include <QMutex>
+#include <QWaitCondition>
 #include <QTime>
 
 namespace BitCoindRPC {
 
-template <class T>
-class Future
-{
+// Should be inside Future class, but caused all sorts of issues, fix later.
+enum class State {
+    Active,
+    Finished,
+    Failed
+};
 
-    // So that finished service routines can set the result
+template <class T>
+class Future {
+
+    // Client should have access to private methods
+    // void finished(const T & result)
+    // void failed(const QString & error)
     friend class Client;
 
 public:
 
-    enum class State {
-        Started,
-        Finished,
-        Failed
-    };
 
+
+    // Default constructor
     Future();
 
+    // Getters
     State state() const;
     T result() const;
-    int age() const;
+    bool expired(int milliSecondLimit) const;
     QString error() const;
 
 private:
@@ -50,19 +54,26 @@ private:
     // Synchronizes access to object
     QMutex _mutex;
 
+    // Condition variable for blocking result() calls
+    QWaitCondition _condition;
+
     // State of computation
     State _state;
 
-    // Computationl result
+    // Computational result
     T _result;
 
-    // Time of future creation
+    // Time of future creation, used to service expired()
     QTime _created;
 
-    //
+    // Error string which is set in setError if processing failed
     QString _error;
 
-    void setResult();
+    // Used by client to set the result
+    void finished(const T & result);
+
+    // Alters state to Failed and saves error message
+    void failed(const QString & error);
 };
 
 }

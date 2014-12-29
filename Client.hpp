@@ -48,9 +48,9 @@ private:
     // Futures
     quint64 _futuresCounter; // counter used to generate unique futures ids across all maps and rpc requests (id field)
 
-    QMap<quint64, QFuture<blockCount> *> _getblockcountFutures;
-    QMap<quint64, QFuture<balance> *> _getbalanceFutures;
-    QMap<quint64, QFuture<accountBalances> *> _getbalanceFutures;
+    QMap<quint64, QFuture<uint> *> _getblockcountFutures;
+    QMap<quint64, QFuture<double> *> _getbalanceFutures;
+    QMap<quint64, QFuture<QMap<QString, double>> *> _listaccountsFutures;
 
     // Does rpc to server
     QNetworkReply * performRPC(QString method, QJsonArray params);

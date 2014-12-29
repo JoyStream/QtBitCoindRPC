@@ -1,4 +1,4 @@
 QtBitCoindRPC
 =============
 
-BitCoind RPC wrapper in C++ Qt framework
+A thread safe asynchronous BitCoind RPC wrapper written in C++ Qt framework

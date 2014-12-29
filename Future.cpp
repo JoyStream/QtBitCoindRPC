@@ -7,15 +7,18 @@
  * http://stackoverflow.com/questions/8290768/is-assignment-operator-atomic
  */
 
-Future::Future()
-    : _state(Started)
-    , _finished(false) {
+using namespace BitCoindRPC;
 
+template <class T>
+Future<T>::Future()
+    : _state(State::Active) {
+
+    // Start timer
     _created.start();
 }
 
-
-State Future::state() const {
+template <class T>
+State Future<T>::state() const {
 
     State r;
 
@@ -26,22 +29,41 @@ State Future::state() const {
     return r;
 }
 
-T Future::result() const {
+template <class T>
+T Future<T>::result() const {
 
-}
-
-int Future::age() const {
-
-    int r;
+    T r;
 
     _mutex.lock();
-    r = _created.elapsed();
+
+    // Wait until result has been set,
+    if(_state == State::Active)
+        _condition.wait(_mutex);
+
+    r = _result;
+    _mutex.unlock();
+
+    // If processing failed, then raise exception
+    if(_state == State::Failed)
+        throw std::exception("Processing failed.");
+
+    return r;
+}
+
+template <class T>
+bool Future<T>::expired(int milliSecondLimit) const {
+
+    bool r;
+
+    _mutex.lock();
+    r = _created.elapsed() > milliSecondLimit;
     _mutex.unlock();
 
     return r;
 }
 
-QString Future::error() const {
+template <class T>
+QString Future<T>::error() const {
 
     QString r;
 
@@ -50,4 +72,24 @@ QString Future::error() const {
     _mutex.unlock();
 
     return r;
+}
+
+template <class T>
+void Future<T>::finished(const T & result) {
+
+    _mutex.lock();
+    _result = result;
+    _state = State::Finished;
+    _condition.wakeAll();
+    _mutex.unlock();
+}
+
+template <class T>
+void Future<T>::failed(const QString & error) {
+
+    _mutex.lock();
+    _state = State::Failed;
+    _condition.wakeAll();
+    _error = error;
+    _mutex.unlock();
 }

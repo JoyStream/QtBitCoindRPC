@@ -48,7 +48,7 @@ QNetworkReply * Client::performRPC(QString method, QJsonArray params) {
     // Turn into byte array
     QByteArray data = QJsonDocument(RPCJson).toJson();
 
-    // Submit post request
+    // Submit POST request
     QNetworkReply * reply = _manager.post(request, data);
 
     return reply;
@@ -87,7 +87,7 @@ void Client::finished(QNetworkReply* reply) {
         QString id = jsonObject["id"].toString();
 
 
-        QString methodName
+        QString methodName;
         quint64 futureId;
 
 
@@ -107,6 +107,8 @@ void Client::finished(QNetworkReply* reply) {
 }
 
 void Client::getblockcount() {
+
+    //
     performRPC("getblockcount", QJsonArray());
 }
 
