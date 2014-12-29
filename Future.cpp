@@ -75,21 +75,25 @@ QString Future<T>::error() const {
 }
 
 template <class T>
-void Future<T>::finished(const T & result) {
+void Future<T>::setToFinished(const T & result) {
 
     _mutex.lock();
     _result = result;
     _state = State::Finished;
     _condition.wakeAll();
     _mutex.unlock();
+
+    emit finished();
 }
 
 template <class T>
-void Future<T>::failed(const QString & error) {
+void Future<T>::setToFailed(const QString & error) {
 
     _mutex.lock();
     _state = State::Failed;
     _condition.wakeAll();
     _error = error;
     _mutex.unlock();
+
+    emit failed();
 }

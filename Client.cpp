@@ -1,4 +1,6 @@
 #include "Client.hpp"
+#include "Future.hpp"
+
 #include <QNetworkRequest>
 #include <QNetworkReply>
 #include <QJsonArray>
@@ -26,7 +28,7 @@ Client::Client(QString host, int port, QString userName, QString password, QStri
                      this, SLOT(finished(QNetworkReply*)));
 }
 
-QNetworkReply * Client::performRPC(QString method, QJsonArray params) {
+QNetworkReply * Client::performRPC(QString method, QJsonArray params, quint64 futureId) {
 
     // Create request
     QNetworkRequest request(_baseUrl);
@@ -41,9 +43,7 @@ QNetworkReply * Client::performRPC(QString method, QJsonArray params) {
     RPCJson["jsonrpc"] = "1.0";
     RPCJson["method"] = method;
     RPCJson["params"] = params;
-
-    // use id to recover correct processor and future object
-    RPCJson["id"] = method + ":" + QString::number(_futuresCounter++);
+    RPCJson["id"] = method + ":" + QString::number(futureId); // use id to recover correct processor and future object
 
     // Turn into byte array
     QByteArray data = QJsonDocument(RPCJson).toJson();
@@ -52,6 +52,17 @@ QNetworkReply * Client::performRPC(QString method, QJsonArray params) {
     QNetworkReply * reply = _manager.post(request, data);
 
     return reply;
+}
+
+quint64 Client::atomicallyGetNextFutureId() {
+
+    quint64 counter;
+
+    _mutex.lock();
+    counter = _futuresCounter++;
+    _mutex.unlock();
+
+    return counter;
 }
 
 void Client::finished(QNetworkReply* reply) {
@@ -83,20 +94,19 @@ void Client::finished(QNetworkReply* reply) {
         // Get result
         QJsonValue result = jsonObject["result"];
 
-        // Recover request type
+        // Recover request type and futureid
         QString id = jsonObject["id"].toString();
+        QStringList idList = id.split(":");
+        QString methodName = idList.front();
+        quint64 futureId = idList.back().toLong();
 
-
-        QString methodName;
-        quint64 futureId;
-
-
-        if(method.compare("getblockcount") == 0)
-            _getblockcount(result);
-        else if(method.compare("getbalance") == 0)
-            _getbalance(result);
-        else if(method.compare("listaccounts") == 0)
-            _listaccounts(result);
+        // Call corresponding handler
+        if(methodName.compare("getblockcount") == 0)
+            _getblockcount(result, futureId);
+        else if(methodName.compare("getbalance") == 0)
+            _getbalance(result, futureId);
+        else if(methodName.compare("listaccounts") == 0)
+            _listaccounts(result, futureId);
         else
             qDebug() << "Uknown method: id field not recognized.";
     } else
@@ -106,44 +116,80 @@ void Client::finished(QNetworkReply* reply) {
     delete reply;
 }
 
-void Client::getblockcount() {
+Future<uint> * Client::getblockcount() {
 
-    //
-    performRPC("getblockcount", QJsonArray());
+    quint64 futureId = atomicallyGetNextFutureId();
+
+    Future<uint> * future = new Future<uint>();
+
+    _getblockcountFutures[futureId] = future;
+
+    performRPC("getblockcount", QJsonArray(), futureId);
+
+    return future;
 }
 
-void Client::getbalance(int minconf) {
+Future<double> * Client::getbalance(int minconf) {
+
+    quint64 futureId = atomicallyGetNextFutureId();
+
+    Future<double> * future = new Future<double>();
+
+    _getbalanceFutures[futureId] = future;
 
     QJsonArray params;
     params.append(_account);
     params.append(minconf);
 
-    performRPC("getbalance", params);
+    performRPC("getbalance", params, futureId);
+
+    return future;
 }
 
-void Client::listaccounts(int minconf) {
+Future<QMap<QString, double>> * Client::listaccounts(int minconf) {
+
+    quint64 futureId = atomicallyGetNextFutureId();
+
+    Future<QMap<QString, double>> * future = new Future<QMap<QString, double>>();
+
+    _listaccountsFutures[futureId] = future;
 
     QJsonArray params;
     params.append(minconf);
 
-    performRPC("listaccounts", params);
+    performRPC("listaccounts", params, futureId);
+
+    return future;
 }
 
-void Client::_getblockcount(const QJsonValue & result) const {
+void Client::_getblockcount(const QJsonValue & result, quint64 futureId) {
 
     int blockCount = result.toInt();
-    qDebug() << "getblockcount =" << blockCount;
+
+    //qDebug() << "getblockcount =" << blockCount;
+
+    QMap<quint64, Future<uint> *>::iterator i = _getblockcountFutures.find(futureId);
+
+    (*i)->setToFinished(blockCount);
+
+    _getblockcountFutures.erase(i);
 }
 
-void Client::_getbalance(const QJsonValue & result) const {
+void Client::_getbalance(const QJsonValue & result, quint64 futureId) {
 
     double balance = result.toDouble();
-    qDebug() << "getbalance =" << balance;
+
+    //qDebug() << "getbalance =" << balance;
+
+    QMap<quint64, Future<double> *>::iterator i = _getbalanceFutures.find(futureId);
+
+    (*i)->setToFinished(balance);
+
+    _getbalanceFutures.erase(i);
 }
 
-void Client::_listaccounts(const QJsonValue & result) const {
+void Client::_listaccounts(const QJsonValue & result, quint64 futureId) {
 
-    /*
     // Balances
     QMap<QString, double> accountBalances;
 
@@ -163,5 +209,6 @@ void Client::_listaccounts(const QJsonValue & result) const {
 
         qDebug() << name << "->" << balance;
     }
-    */
+
+    _listaccountsFutures[futureId]->setToFinished(accountBalances);
 }

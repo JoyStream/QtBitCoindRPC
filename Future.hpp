@@ -13,8 +13,6 @@
  * T must have a default constructor for when computation is not completed.
  */
 
-#include "Client.hpp"
-
 #include <QMutex>
 #include <QWaitCondition>
 #include <QTime>
@@ -32,13 +30,11 @@ template <class T>
 class Future {
 
     // Client should have access to private methods
-    // void finished(const T & result)
-    // void failed(const QString & error)
+    // * void finished(const T & result)
+    // * void failed(const QString & error)
     friend class Client;
 
 public:
-
-
 
     // Default constructor
     Future();
@@ -48,6 +44,14 @@ public:
     T result() const;
     bool expired(int milliSecondLimit) const;
     QString error() const;
+
+signals:
+
+    // Fires when state is altered from State::Active to State::Finished
+    void finished() const;
+
+    // Fires when state is altered from State::Active to State::Failed
+    void failed() const;
 
 private:
 
@@ -70,10 +74,10 @@ private:
     QString _error;
 
     // Used by client to set the result
-    void finished(const T & result);
+    void setToFinished(const T & result);
 
     // Alters state to Failed and saves error message
-    void failed(const QString & error);
+    void setToFailed(const QString & error);
 };
 
 }
