@@ -1,3 +1,7 @@
+# QtCreator
+*.autosave
+*.pro.user
+
 # Windows image file caches
 Thumbs.db
 ehthumbs.db

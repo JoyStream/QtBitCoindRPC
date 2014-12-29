@@ -1,194 +1,136 @@
 #include "Client.hpp"
-#include "Future.hpp"
 
-#include <QNetworkRequest>
 #include <QNetworkReply>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QEventLoop>
+#include <QtConcurrent/QtConcurrent>
 
 using namespace BitCoindRPC;
 
-Client::Client(QString host, int port, QString userName, QString password, QString account)
+Client::Client(QString host, int port, QString user, QString password, QString account)
     : _host(host)
     , _port(port)
-    , _userName(userName)
+    , _user(user)
     , _password(password)
-    , _account(account)
-    , _futuresCounter(0) {
-
-    // Create url
-    _baseUrl.setScheme("http");
-    _baseUrl.setHost(host);
-    _baseUrl.setPort(port);
-    _baseUrl.setUserName(userName);
-    _baseUrl.setPassword(password);
-
-    // _manager::finished should process finished signals
-    QObject::connect(&_manager, SIGNAL(finished(QNetworkReply*)),
-                     this, SLOT(finished(QNetworkReply*)));
-}
-
-QNetworkReply * Client::performRPC(QString method, QJsonArray params, quint64 futureId) {
+    , _account(account) {
 
     // Create request
-    QNetworkRequest request(_baseUrl);
+    QUrl url;
+    url.setScheme("http");
+    url.setHost(host);
+    url.setPort(port);
+    url.setUserName(user);
+    url.setPassword(password);
 
-    // Set content type
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json-rpc");
+    _request = QNetworkRequest(url);
 
-    // Create json-rpc based on standard: http://json-rpc.org/wiki/specification
+    // Set request content type
+    _request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json-rpc");
+}
+
+QJsonValue Client::blockingRPC(const QString & method, const QJsonArray & parameters) {
+
+    // Create RPC payload: http://json-rpc.org/wiki/specification
     // Bitcoind client: https://github.com/bitcoin/bitcoin/blob/master/src/rpcprotocol.cpp
     QJsonObject RPCJson;
 
     RPCJson["jsonrpc"] = "1.0";
     RPCJson["method"] = method;
-    RPCJson["params"] = params;
-    RPCJson["id"] = method + ":" + QString::number(futureId); // use id to recover correct processor and future object
+    RPCJson["params"] = parameters;
+    //RPCJson["id"] = method + ":" + QString::number(futureId); // use id to recover correct processor and future object
+    RPCJson["id"] = method; // can be anything, we dont use it in reply
 
     // Turn into byte array
-    QByteArray data = QJsonDocument(RPCJson).toJson();
+    QByteArray payload = QJsonDocument(RPCJson).toJson();
+
+    // Temporary event loop on stack
+    QEventLoop eventLoop;
 
     // Submit POST request
-    QNetworkReply * reply = _manager.post(request, data);
+    QNetworkReply * reply = _manager.post(_request, payload);
 
-    return reply;
-}
+    // Dispose of reply when reentering event loop later
+    reply->deleteLater();
 
-quint64 Client::atomicallyGetNextFutureId() {
+    // Stop event loop when reply is finished
+    QObject::connect(reply, SIGNAL(finished()),
+                     &eventLoop, SLOT(quit()));
 
-    quint64 counter;
+    // Enter event loop until reply is finished
+    eventLoop.exec();
 
-    _mutex.lock();
-    counter = _futuresCounter++;
-    _mutex.unlock();
+    // Get response data
+    QByteArray response = reply->readAll();
 
-    return counter;
-}
-
-void Client::finished(QNetworkReply* reply) {
-
-    // Get data
-    QByteArray data = reply->readAll();
-
-    // Check that there was no error
+    // If there was an error, throw exception
     QNetworkReply::NetworkError e = reply->error();
-
-    if(e != QNetworkReply::NoError) {
-
-        qDebug() << "Request failed:" << data;
-        return;
-    }
-
-    //qDebug() << data;
+    if(e != QNetworkReply::NoError)
+        throw std::exception("Network request error: " + response);
 
     // Parse into json
-    QJsonDocument jsonResponse = QJsonDocument::fromJson(data);
+    QJsonDocument jsonResponse = QJsonDocument::fromJson(response);
     QJsonObject jsonObject = jsonResponse.object();
 
     // Get error
     QJsonValue error = jsonObject["error"];
 
-    // Call correct handler if there was no error
-    if(error.isNull()) {
+    // Return result key if there was no error, otherwise throw exception
+    if(error.isNull())
+        return jsonObject["result"];
+    else {
 
-        // Get result
-        QJsonValue result = jsonObject["result"];
+        // Create error string
+        QString errorString = "RPC request error: " + error.toString();
 
-        // Recover request type and futureid
-        QString id = jsonObject["id"].toString();
-        QStringList idList = id.split(":");
-        QString methodName = idList.front();
-        quint64 futureId = idList.back().toLong();
-
-        // Call corresponding handler
-        if(methodName.compare("getblockcount") == 0)
-            _getblockcount(result, futureId);
-        else if(methodName.compare("getbalance") == 0)
-            _getbalance(result, futureId);
-        else if(methodName.compare("listaccounts") == 0)
-            _listaccounts(result, futureId);
-        else
-            qDebug() << "Uknown method: id field not recognized.";
-    } else
-        qDebug() << "Response with error:" << error.toString();
-
-    // Delete reply
-    delete reply;
+        // Throw exception with given error
+        throw std::exception(errorString.toLatin1());
+    }
 }
 
-Future<uint> * Client::getblockcount() {
-
-    quint64 futureId = atomicallyGetNextFutureId();
-
-    Future<uint> * future = new Future<uint>();
-
-    _getblockcountFutures[futureId] = future;
-
-    performRPC("getblockcount", QJsonArray(), futureId);
-
-    return future;
+QFuture<uint> Client::getBlockCount() {
+    return QtConcurrent::run(this, &BitCoindRPC::Client::getBlockCountBlocking);
 }
 
-Future<double> * Client::getbalance(int minconf) {
+uint Client::getBlockCountBlocking() {
 
-    quint64 futureId = atomicallyGetNextFutureId();
+    // Make blocking RPC call
+    QJsonValue result = blockingRPC("getblockcount", QJsonArray());
 
-    Future<double> * future = new Future<double>();
-
-    _getbalanceFutures[futureId] = future;
-
-    QJsonArray params;
-    params.append(_account);
-    params.append(minconf);
-
-    performRPC("getbalance", params, futureId);
-
-    return future;
+    // Return value
+    return result.toInt();
 }
 
-Future<QMap<QString, double>> * Client::listaccounts(int minconf) {
-
-    quint64 futureId = atomicallyGetNextFutureId();
-
-    Future<QMap<QString, double>> * future = new Future<QMap<QString, double>>();
-
-    _listaccountsFutures[futureId] = future;
-
-    QJsonArray params;
-    params.append(minconf);
-
-    performRPC("listaccounts", params, futureId);
-
-    return future;
+QFuture<double> Client::getBalance(int minconf) {
+    return QtConcurrent::run(this, &BitCoindRPC::Client::getBalanceBlocking, minconf);
 }
 
-void Client::_getblockcount(const QJsonValue & result, quint64 futureId) {
+double Client::getBalanceBlocking(int minconf) {
 
-    int blockCount = result.toInt();
+    // Create RPC parameters
+    QJsonArray parameters;
+    parameters.append(_account);
+    parameters.append(minconf);
 
-    //qDebug() << "getblockcount =" << blockCount;
+    // Make blocking RPC call
+    QJsonValue result = blockingRPC("getbalance", parameters);
 
-    QMap<quint64, Future<uint> *>::iterator i = _getblockcountFutures.find(futureId);
-
-    (*i)->setToFinished(blockCount);
-
-    _getblockcountFutures.erase(i);
+    // Return value
+    return result.toDouble();
 }
 
-void Client::_getbalance(const QJsonValue & result, quint64 futureId) {
-
-    double balance = result.toDouble();
-
-    //qDebug() << "getbalance =" << balance;
-
-    QMap<quint64, Future<double> *>::iterator i = _getbalanceFutures.find(futureId);
-
-    (*i)->setToFinished(balance);
-
-    _getbalanceFutures.erase(i);
+QFuture<QMap<QString, double>> Client::listAccounts(int minconf) {
+    return QtConcurrent::run(this, &BitCoindRPC::Client::listAccountsBlocking, minconf);
 }
 
-void Client::_listaccounts(const QJsonValue & result, quint64 futureId) {
+QMap<QString, double> Client::listAccountsBlocking(int minconf) {
+
+    // Create RPC parameters
+    QJsonArray parameters;
+    parameters.append(minconf);
+
+    // Make blocking RPC call
+    QJsonValue result = blockingRPC("listaccounts", parameters);
 
     // Balances
     QMap<QString, double> accountBalances;
@@ -210,5 +152,5 @@ void Client::_listaccounts(const QJsonValue & result, quint64 futureId) {
         qDebug() << name << "->" << balance;
     }
 
-    _listaccountsFutures[futureId]->setToFinished(accountBalances);
+    return accountBalances;
 }
