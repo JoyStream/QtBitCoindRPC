@@ -17,7 +17,10 @@ class Client : public QObject {
 public:
 
     // Constructor
-    Client(QString host, int port, QString userName, QString password, QString account);
+    Client(QString host, int port, QString userName, QString password, QString account, QNetworkAccessManager * manager = NULL);
+
+    // Destructor
+    ~Client();
 
     // Asynchronous routines for accessing bitcoind RPC
     QFuture<uint> getBlockCount();
@@ -42,14 +45,17 @@ private:
     // Bitcoind account to use
     QString _account;
 
+    // If network manager was allocated in constructor
+    bool _ownsNetworkManager;
+
+    // Allows access to network
+    QNetworkAccessManager * _manager;
+
     // Request sent used for all RPC calls (is read-only after ctor)
     QNetworkRequest _request;
 
-    // Allows access to network
-    QNetworkAccessManager _manager;
-
     // Blocking RPC call of given method with given parameters
-    QJsonValue blockingRPC(const QString & method, const QJsonArray & parameters);
+    QJsonValue rpc(const QString & method, const QJsonArray & parameters);
 
     // Blocking POST which must be done on same thread as _manager owner
     Q_INVOKABLE QNetworkReply * blockingPostOnManagerThread(const QByteArray & payload);

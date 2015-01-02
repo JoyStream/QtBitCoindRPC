@@ -8,12 +8,13 @@
 
 using namespace BitCoindRPC;
 
-Client::Client(QString host, int port, QString user, QString password, QString account)
+Client::Client(QString host, int port, QString user, QString password, QString account, QNetworkAccessManager * manager)
     : _host(host)
     , _port(port)
     , _user(user)
     , _password(password)
-    , _account(account) {
+    , _account(account)
+    , _ownsNetworkManager(manager == NULL) {
 
     // Create request
     QUrl url;
@@ -23,13 +24,23 @@ Client::Client(QString host, int port, QString user, QString password, QString a
     url.setUserName(user);
     url.setPassword(password);
 
+    if(_ownsNetworkManager)
+        _manager = new QNetworkAccessManager();
+
     _request = QNetworkRequest(url);
 
     // Set request content type
     _request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json-rpc");
 }
 
-QJsonValue Client::blockingRPC(const QString & method, const QJsonArray & parameters) {
+Client::~Client(){
+
+    // Delete network manager if we allocated one
+    if(_ownsNetworkManager)
+        delete _manager;
+}
+
+QJsonValue Client::rpc(const QString & method, const QJsonArray & parameters) {
 
     // Create RPC payload: http://json-rpc.org/wiki/specification
     // Bitcoind client: https://github.com/bitcoin/bitcoin/blob/master/src/rpcprotocol.cpp
@@ -47,9 +58,6 @@ QJsonValue Client::blockingRPC(const QString & method, const QJsonArray & parame
     // Use a direct connection if we are on manager thread, otherwise use a blocking connection
     Qt::ConnectionType type;
 
-    //Qt::HANDLE currentThreadId = QThread::currentThread()->currentThreadId(),
-    //            managerThreadId = _manager.thread()->currentThreadId();
-
     if(QThread::currentThread() == _manager.thread())
         type = Qt::DirectConnection;
     else
@@ -64,9 +72,6 @@ QJsonValue Client::blockingRPC(const QString & method, const QJsonArray & parame
                               Q_RETURN_ARG(QNetworkReply*, reply),
                               Q_ARG(QByteArray, payload));
 
-    // Dispose of reply on its thread
-    reply->deleteLater();
-
     // Get response data
     QByteArray response = reply->readAll();
 
@@ -74,6 +79,10 @@ QJsonValue Client::blockingRPC(const QString & method, const QJsonArray & parame
     QNetworkReply::NetworkError e = reply->error();
     if(e != QNetworkReply::NoError)
         throw std::exception("Network request error: " + response);
+
+    // Dispose of reply on its own thread,
+    // do not use after this point!
+    reply->deleteLater();
 
     // Parse into json
     QJsonDocument jsonResponse = QJsonDocument::fromJson(response);
@@ -96,6 +105,8 @@ QJsonValue Client::blockingRPC(const QString & method, const QJsonArray & parame
 }
 
 QNetworkReply * Client::blockingPostOnManagerThread(const QByteArray & payload) {
+
+    qDebug() << "Do we ever get here!!!!";
 
     // Temporary event loop on stack
     QEventLoop eventLoop;
@@ -121,7 +132,7 @@ QFuture<uint> Client::getBlockCount() {
 uint Client::getBlockCountBlocking() {
 
     // Make blocking RPC call
-    QJsonValue result = blockingRPC("getblockcount", QJsonArray());
+    QJsonValue result = rpc("getblockcount", QJsonArray());
 
     // Return value
     return result.toInt();
@@ -139,7 +150,7 @@ double Client::getBalanceBlocking(int minconf) {
     parameters.append(minconf);
 
     // Make blocking RPC call
-    QJsonValue result = blockingRPC("getbalance", parameters);
+    QJsonValue result = rpc("getbalance", parameters);
 
     // Return value
     return result.toDouble();
@@ -156,7 +167,7 @@ QMap<QString, double> Client::listAccountsBlocking(int minconf) {
     parameters.append(minconf);
 
     // Make blocking RPC call
-    QJsonValue result = blockingRPC("listaccounts", parameters);
+    QJsonValue result = rpc("listaccounts", parameters);
 
     // Balances
     QMap<QString, double> accountBalances;

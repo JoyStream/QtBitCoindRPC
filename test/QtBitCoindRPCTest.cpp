@@ -8,17 +8,17 @@ QtBitCoindRPCTest::QtBitCoindRPCTest()
               "*") {
 }
 
+
 void QtBitCoindRPCTest::getBlockCount() {
 
     // Get future
     QFuture<uint> f = _client.getBlockCount();
 
     // Block on result
-    uint result = f.result();
+    //uint result = f.result();
 
-    qDebug() << result;
+    //qDebug() << result;
 }
-
 /*
 void QtBitCoindRPCTest::getBlockCountBlocking() {
     qDebug() << _client.getBlockCountBlocking();
