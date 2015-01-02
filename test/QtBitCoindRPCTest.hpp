@@ -2,6 +2,7 @@
 #define QTBITCOINDRPCTEST_HPP
 
 #include <QtTest/QtTest>
+#include <QNetworkAccessManager>
 
 #include <lib/Client.hpp>
 
@@ -16,13 +17,17 @@ public:
 
 private:
 
+    // Network manager used by client
+    QNetworkAccessManager _manager;
+
     // BitCoind RPC client
     BitCoindRPC::Client _client;
 
 private slots:
 
     void getBlockCount();
-    //void getBlockCountBlocking();
+    void getBalance();
+    void listAccounts();
 
 };
 
